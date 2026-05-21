@@ -1,0 +1,7 @@
+name = "wg-putzplan"
+compatibility_date = "2024-05-18"
+
+[[d1_databases]]
+binding = "DB" # i.e. available in your worker as env.DB
+database_name = "putzplan-db"
+database_id = "921b1908-de45-4ac2-9ae5-6d263649aedf"

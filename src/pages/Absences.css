@@ -1,0 +1,93 @@
+@layer components {
+  .absences-container {
+    @apply max-w-4xl mx-auto p-6;
+  }
+
+  .absences-header {
+    @apply mb-8;
+  }
+
+  .absences-title {
+    @apply text-3xl font-bold text-slate-900;
+  }
+
+  .absences-subtitle {
+    @apply text-slate-500 mt-1;
+  }
+
+  .rule-alert {
+    @apply bg-blue-50 border border-blue-100 rounded-2xl p-4 mb-8 flex gap-3 text-blue-800;
+  }
+
+  .rule-icon {
+    @apply w-5 h-5 flex-shrink-0 mt-0.5;
+  }
+
+  .rule-text {
+    @apply text-sm;
+  }
+
+  .form-card {
+    @apply bg-white rounded-3xl p-6 border border-slate-200 shadow-sm mb-8;
+  }
+
+  .form-title {
+    @apply text-lg font-bold mb-4 flex items-center gap-2;
+  }
+
+  .form-title-icon {
+    @apply w-5 h-5 text-blue-600;
+  }
+
+  .form-wrapper {
+    @apply flex flex-col md:flex-row gap-4 items-end;
+  }
+
+  .form-group {
+    @apply w-full;
+  }
+
+  .form-label {
+    @apply block text-sm font-medium text-slate-700 mb-1;
+  }
+
+  .form-input {
+    @apply w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3;
+  }
+
+  .btn-submit {
+    @apply w-full md:w-auto bg-blue-600 text-white font-medium rounded-xl px-6 py-3 hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50;
+  }
+
+  .list-title {
+    @apply font-bold text-slate-800 mb-4;
+  }
+
+  .list-empty {
+    @apply text-slate-500 italic;
+  }
+
+  .absences-list {
+    @apply grid gap-3;
+  }
+
+  .absence-card {
+    @apply bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between;
+  }
+
+  .absence-info {
+    @apply flex items-center gap-3;
+  }
+
+  .absence-icon-wrapper {
+    @apply w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center;
+  }
+
+  .absence-date {
+    @apply font-medium text-slate-900;
+  }
+
+  .btn-delete {
+    @apply p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors;
+  }
+}

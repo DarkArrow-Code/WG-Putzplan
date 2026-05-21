@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@import "./App.css";
+@import "./pages/Login.css";
+@import "./pages/Dashboard.css";
+@import "./pages/Tasks.css";
+@import "./pages/Absences.css";
+
+@layer base {
+  body {
+    background-color: var(--color-slate-50);
+    color: var(--color-slate-900);
+  }
+}

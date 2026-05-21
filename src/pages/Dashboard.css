@@ -1,0 +1,161 @@
+@layer components {
+  .dashboard-container {
+    @apply max-w-4xl mx-auto p-6;
+  }
+
+  .dashboard-header {
+    @apply mb-12;
+  }
+
+  .dashboard-title {
+    @apply text-3xl font-bold text-slate-900;
+  }
+
+  .dashboard-subtitle {
+    @apply text-slate-500 mt-1;
+  }
+
+  .loading-spinner-wrapper {
+    @apply flex justify-center p-12;
+  }
+
+  .loading-spinner {
+    @apply w-8 h-8 text-blue-500 animate-spin;
+  }
+
+  .section-mb {
+    @apply mb-12;
+  }
+
+  .section-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  .section-title {
+    @apply text-xl font-bold text-slate-800;
+  }
+
+  .btn-danger-outline {
+    @apply text-sm font-medium text-red-600 hover:text-red-700 flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg transition-colors;
+  }
+
+  .empty-task-card {
+    @apply bg-slate-100 border-2 border-dashed border-slate-200 rounded-3xl p-8 text-center;
+  }
+
+  .empty-task-title {
+    @apply text-slate-500 font-medium text-lg;
+  }
+
+  .empty-task-subtitle {
+    @apply text-slate-400 text-sm mt-1;
+  }
+
+  .hero-card {
+    @apply rounded-3xl p-8 shadow-xl relative overflow-hidden transition-colors;
+  }
+
+  .hero-card.completed {
+    @apply bg-green-600 text-white;
+  }
+
+  .hero-card.pending {
+    @apply bg-gradient-to-r from-blue-600 to-indigo-600 text-white;
+  }
+
+  .hero-bg-icon {
+    @apply absolute top-0 right-0 p-8 opacity-10;
+  }
+
+  .hero-content {
+    @apply relative z-10;
+  }
+
+  .hero-badge {
+    @apply inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-sm font-medium mb-4 backdrop-blur-sm;
+  }
+
+  .hero-badge-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .hero-badge-dot.completed {
+    @apply bg-white;
+  }
+
+  .hero-badge-dot.pending {
+    @apply bg-green-400;
+  }
+
+  .hero-task-title {
+    @apply text-4xl font-bold mb-4;
+  }
+
+  .hero-task-desc {
+    @apply text-blue-100 max-w-md text-lg;
+  }
+
+  .hero-actions {
+    @apply mt-8 flex gap-4;
+  }
+
+  .hero-btn-completed {
+    @apply inline-flex items-center gap-2 px-6 py-3 bg-white/20 rounded-xl font-bold;
+  }
+
+  .hero-btn-complete {
+    @apply bg-white text-blue-600 px-6 py-3 rounded-xl font-bold hover:bg-blue-50 transition-colors shadow-sm;
+  }
+
+  .tasks-grid {
+    @apply grid gap-4 sm:grid-cols-2;
+  }
+
+  .other-task-card {
+    @apply p-6 rounded-2xl border shadow-sm flex items-center justify-between;
+  }
+
+  .other-task-card.active-user {
+    @apply ring-2 ring-blue-500 bg-blue-50/50;
+  }
+
+  .other-task-card.completed {
+    @apply bg-slate-50 border-slate-200 opacity-75;
+  }
+
+  .other-task-card.pending {
+    @apply bg-white border-slate-200;
+  }
+
+  .other-task-user {
+    @apply font-bold text-slate-900 text-lg flex items-center gap-2;
+  }
+
+  .user-badge {
+    @apply text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium;
+  }
+
+  .monthly-badge {
+    @apply text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium;
+  }
+
+  .other-task-title {
+    @apply text-slate-500 font-medium;
+  }
+
+  .other-task-prio {
+    @apply text-xs text-slate-400 font-normal;
+  }
+
+  .status-icon-completed {
+    @apply w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600;
+  }
+
+  .status-icon-pending {
+    @apply w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-300;
+  }
+
+  .status-dot {
+    @apply w-3 h-3 rounded-full bg-slate-300;
+  }
+}
