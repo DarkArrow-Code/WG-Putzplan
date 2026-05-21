@@ -3,6 +3,22 @@ import { handle } from 'hono/cloudflare-pages'
 
 const app = new Hono().basePath('/api')
 
+app.onError((err, c) => {
+  console.error('Server error:', err)
+  return c.json({ error: err.message || 'Server-Fehler', stack: err.stack }, 500)
+})
+
+// Middleware to verify D1 database binding exists
+app.use('*', async (c, next) => {
+  if (!c.env || !c.env.DB) {
+    return c.json({
+      error: 'D1-Datenbankbindung "DB" fehlt!',
+      details: 'Bitte stelle sicher, dass du in den Cloudflare Pages-Einstellungen unter "Settings" -> "Functions" -> "D1 database bindings" eine D1-Datenbank mit dem Bindungsnamen "DB" verknüpft hast, und das Projekt danach neu gebaut/deployed hast.'
+    }, 500)
+  }
+  await next()
+})
+
 // Secure SHA-256 hashing using native Web Crypto API
 async function sha256(message) {
   const msgBuffer = new TextEncoder().encode(message)
@@ -79,18 +95,27 @@ app.post('/register', async (c) => {
 
   await ensureFiveUsers(c.env.DB)
 
-  // Check if name already exists for active users
-  const existingUser = await c.env.DB.prepare('SELECT id FROM users WHERE name = ? AND is_setup = 1').bind(name).first()
+  let placeholder = null
+
+  // Check if name already exists
+  const existingUser = await c.env.DB.prepare('SELECT id, is_setup FROM users WHERE name = ?').bind(name).first()
   if (existingUser) {
-    return c.json({ error: 'Dieser Name existiert bereits' }, 400)
+    if (existingUser.is_setup) {
+      return c.json({ error: 'Dieser Name existiert bereits' }, 400)
+    } else {
+      // If it exists as an unconfigured placeholder, claim this specific one
+      placeholder = existingUser
+    }
   }
 
-  // Find the first placeholder in the specified floor to take over
-  let placeholder = await c.env.DB.prepare('SELECT id FROM users WHERE is_setup = 0 AND floor = ?').bind(floor).first()
-  
-  // Fallback to any placeholder if none in target floor
   if (!placeholder) {
-    placeholder = await c.env.DB.prepare('SELECT id FROM users WHERE is_setup = 0').first()
+    // Find the first placeholder in the specified floor to take over
+    placeholder = await c.env.DB.prepare('SELECT id FROM users WHERE is_setup = 0 AND floor = ?').bind(floor).first()
+    
+    // Fallback to any placeholder if none in target floor
+    if (!placeholder) {
+      placeholder = await c.env.DB.prepare('SELECT id FROM users WHERE is_setup = 0').first()
+    }
   }
 
   if (!placeholder) {
@@ -99,10 +124,12 @@ app.post('/register', async (c) => {
 
   const hashedPassword = await sha256(password)
 
-  // Update placeholder with new user credentials and floor
-  const result = await c.env.DB.prepare(
-    'UPDATE users SET name = ?, password_hash = ?, is_setup = 1, floor = ? WHERE id = ? RETURNING *'
-  ).bind(name, hashedPassword, floor, placeholder.id).first()
+  // Update placeholder using safe .run() + subsequent .first() SELECT
+  await c.env.DB.prepare(
+    'UPDATE users SET name = ?, password_hash = ?, is_setup = 1, floor = ? WHERE id = ?'
+  ).bind(name, hashedPassword, floor, placeholder.id).run()
+
+  const result = await c.env.DB.prepare('SELECT id, name, floor FROM users WHERE id = ?').bind(placeholder.id).first()
 
   return c.json({ message: 'Registered successfully', user: { id: result.id, name: result.name, floor: result.floor } })
 })
@@ -116,9 +143,13 @@ app.get('/tasks', async (c) => {
 // Create a new task template
 app.post('/tasks', async (c) => {
   const { title, description, type, default_priority, floor_restriction } = await c.req.json()
-  const result = await c.env.DB.prepare(
-    'INSERT INTO task_templates (title, description, type, default_priority, floor_restriction) VALUES (?, ?, ?, ?, ?) RETURNING *'
-  ).bind(title, description || '', type || 'weekly', default_priority || 5, floor_restriction || null).first()
+  
+  const insertResult = await c.env.DB.prepare(
+    'INSERT INTO task_templates (title, description, type, default_priority, floor_restriction) VALUES (?, ?, ?, ?, ?)'
+  ).bind(title, description || '', type || 'weekly', default_priority || 5, floor_restriction || null).run()
+
+  const result = await c.env.DB.prepare('SELECT * FROM task_templates WHERE id = ?').bind(insertResult.meta.last_row_id).first()
+
   return c.json(result, 201)
 })
 
@@ -126,9 +157,13 @@ app.post('/tasks', async (c) => {
 app.put('/tasks/:id', async (c) => {
   const id = c.req.param('id')
   const { title, description, type, default_priority, floor_restriction } = await c.req.json()
-  const result = await c.env.DB.prepare(
-    'UPDATE task_templates SET title = ?, description = ?, type = ?, default_priority = ?, floor_restriction = ? WHERE id = ? RETURNING *'
-  ).bind(title, description, type, default_priority, floor_restriction || null, id).first()
+  
+  await c.env.DB.prepare(
+    'UPDATE task_templates SET title = ?, description = ?, type = ?, default_priority = ?, floor_restriction = ? WHERE id = ?'
+  ).bind(title, description, type, default_priority, floor_restriction || null, id).run()
+
+  const result = await c.env.DB.prepare('SELECT * FROM task_templates WHERE id = ?').bind(id).first()
+
   return c.json(result)
 })
 
@@ -164,9 +199,13 @@ app.get('/absences', async (c) => {
 // Create an absence
 app.post('/absences', async (c) => {
   const { user_id, start_date, end_date } = await c.req.json()
-  const result = await c.env.DB.prepare(
-    'INSERT INTO absences (user_id, start_date, end_date) VALUES (?, ?, ?) RETURNING *'
-  ).bind(user_id, start_date, end_date).first()
+  
+  const insertResult = await c.env.DB.prepare(
+    'INSERT INTO absences (user_id, start_date, end_date) VALUES (?, ?, ?)'
+  ).bind(user_id, start_date, end_date).run()
+
+  const result = await c.env.DB.prepare('SELECT * FROM absences WHERE id = ?').bind(insertResult.meta.last_row_id).first()
+
   return c.json(result, 201)
 })
 
@@ -220,6 +259,24 @@ app.post('/assignments/generate', async (c) => {
   const assignments = [];
   const assignedUserIds = new Set();
 
+  // Helper function to safely insert assignment and retrieve it
+  const addAssignment = async (taskId, userId, priority) => {
+    const insertResult = await c.env.DB.prepare(
+      'INSERT INTO weekly_assignments (task_id, user_id, week_start_date, current_priority) VALUES (?, ?, ?, ?)'
+    ).bind(taskId, userId, weekStart, priority).run();
+    
+    const result = await c.env.DB.prepare(`
+      SELECT a.*, t.title, t.description, t.type, u.name as user_name
+      FROM weekly_assignments a
+      JOIN task_templates t ON a.task_id = t.id
+      JOIN users u ON a.user_id = u.id
+      WHERE a.id = ?
+    `).bind(insertResult.meta.last_row_id).first();
+    
+    assignments.push(result);
+    assignedUserIds.add(userId);
+  };
+
   // 1. OG2 Bathroom Task (2 residents) - Perfect 4-week cycle to alternate bathroom and shower duty fairly
   const og2Users = availableUsers.filter(u => u.floor === 'OG2');
   og2Users.sort((a, b) => a.id - b.id);
@@ -254,11 +311,7 @@ app.post('/assignments/generate', async (c) => {
 
     const task = tasks.find(t => t.title === taskTitle);
     if (task && selectedUser) {
-      const result = await c.env.DB.prepare(
-        'INSERT INTO weekly_assignments (task_id, user_id, week_start_date, current_priority) VALUES (?, ?, ?, ?) RETURNING *'
-      ).bind(task.id, selectedUser.id, weekStart, task.default_priority).first();
-      assignments.push(result);
-      assignedUserIds.add(selectedUser.id);
+      await addAssignment(task.id, selectedUser.id, task.default_priority);
     }
   }
 
@@ -275,11 +328,7 @@ app.post('/assignments/generate', async (c) => {
 
     const task = tasks.find(t => t.title === taskTitle);
     if (task && selectedUser) {
-      const result = await c.env.DB.prepare(
-        'INSERT INTO weekly_assignments (task_id, user_id, week_start_date, current_priority) VALUES (?, ?, ?, ?) RETURNING *'
-      ).bind(task.id, selectedUser.id, weekStart, task.default_priority).first();
-      assignments.push(result);
-      assignedUserIds.add(selectedUser.id);
+      await addAssignment(task.id, selectedUser.id, task.default_priority);
     }
   }
 
@@ -295,13 +344,9 @@ app.post('/assignments/generate', async (c) => {
       if (i >= remainingUsers.length) break;
       
       const task = generalWeeklyTasks[i];
-      // Deterministically rotate who gets which general task
+      // Rotate who gets which general task
       const selectedUser = remainingUsers[(weekNum + i) % remainingUsers.length];
-      
-      const result = await c.env.DB.prepare(
-        'INSERT INTO weekly_assignments (task_id, user_id, week_start_date, current_priority) VALUES (?, ?, ?, ?) RETURNING *'
-      ).bind(task.id, selectedUser.id, weekStart, task.default_priority).first();
-      assignments.push(result);
+      await addAssignment(task.id, selectedUser.id, task.default_priority);
     }
   }
 
@@ -322,10 +367,7 @@ app.post('/assignments/generate', async (c) => {
       availableUsers.sort((a, b) => a.id - b.id);
       const selectedUser = availableUsers[(weekNum + weekOfMonth) % availableUsers.length];
 
-      const result = await c.env.DB.prepare(
-        'INSERT INTO weekly_assignments (task_id, user_id, week_start_date, current_priority) VALUES (?, ?, ?, ?) RETURNING *'
-      ).bind(task.id, selectedUser.id, weekStart, task.default_priority).first();
-      assignments.push(result);
+      await addAssignment(task.id, selectedUser.id, task.default_priority);
     }
   }
 

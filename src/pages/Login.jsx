@@ -65,10 +65,18 @@ export default function Login({ setUser }) {
         body: JSON.stringify(bodyPayload)
       })
 
-      const data = await res.json()
+      let data = {}
+      const text = await res.text()
+      try {
+        if (text) {
+          data = JSON.parse(text)
+        }
+      } catch (e) {
+        console.error("Failed to parse response JSON", e)
+      }
 
       if (!res.ok) {
-        throw new Error(data.error || 'Fehler aufgetreten')
+        throw new Error(data.error || text || 'Fehler aufgetreten')
       }
 
       localStorage.setItem('user', JSON.stringify(data.user))
