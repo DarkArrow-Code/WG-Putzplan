@@ -8,14 +8,14 @@ export default function Absences({ user }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const loadAbsences = () => {
-    fetch(`/api/absences?user_id=${user.id}`)
+    fetch('/api/absences')
       .then(res => res.json())
       .then(data => setAbsences(data))
   }
 
   useEffect(() => {
     loadAbsences()
-  }, [user.id])
+  }, [])
 
   const handleAdd = async (e) => {
     e.preventDefault()
@@ -93,7 +93,7 @@ export default function Absences({ user }) {
       </div>
 
       <div>
-        <h3 className="list-title">Deine eingetragenen Abwesenheiten</h3>
+        <h3 className="list-title">Alle eingetragenen Abwesenheiten</h3>
         {absences.length === 0 ? (
           <p className="list-empty">Keine Abwesenheiten eingetragen.</p>
         ) : (
@@ -105,17 +105,27 @@ export default function Absences({ user }) {
                     <CalendarIcon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="absence-date">
+                    <p className="font-bold text-slate-800 flex items-center gap-2">
+                      {abs.user_name}
+                      {abs.user_id === user.id && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                          Du
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-slate-500 text-sm mt-0.5">
                       {new Date(abs.start_date).toLocaleDateString('de-DE')} - {new Date(abs.end_date).toLocaleDateString('de-DE')}
                     </p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => handleDelete(abs.id)}
-                  className="btn-delete"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+                {abs.user_id === user.id && (
+                  <button 
+                    onClick={() => handleDelete(abs.id)}
+                    className="btn-delete"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                )}
               </div>
             ))}
           </div>

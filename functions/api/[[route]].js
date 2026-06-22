@@ -8,6 +8,55 @@ app.onError((err, c) => {
   return c.json({ error: err.message || 'Server-Fehler', stack: err.stack }, 500)
 })
 
+let dbCleaned = false
+
+async function cleanAndIndexDatabase(db) {
+  if (dbCleaned) return
+  try {
+    // 1. Delete redundant duplicate entries in weekly_assignments grouped by (task_id, week_start_date, status) keeping only the minimum ID
+    await db.prepare(`
+      DELETE FROM weekly_assignments
+      WHERE id NOT IN (
+        SELECT MIN(id)
+        FROM weekly_assignments
+        GROUP BY task_id, week_start_date, status
+      )
+    `).run()
+
+    // 2. If there are still duplicates for the same task in the same week (e.g. one completed and one pending), delete the pending one
+    await db.prepare(`
+      DELETE FROM weekly_assignments
+      WHERE status = 'pending'
+      AND EXISTS (
+        SELECT 1 FROM weekly_assignments a2
+        WHERE a2.task_id = weekly_assignments.task_id
+        AND a2.week_start_date = weekly_assignments.week_start_date
+        AND a2.status = 'completed'
+      )
+    `).run()
+
+    // 3. Delete any remaining duplicates for safety, keeping only one unique task entry per week
+    await db.prepare(`
+      DELETE FROM weekly_assignments
+      WHERE id NOT IN (
+        SELECT MIN(id)
+        FROM weekly_assignments
+        GROUP BY task_id, week_start_date
+      )
+    `).run()
+
+    // 4. Create the unique index to prevent future race conditions
+    await db.prepare(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_assignments_task_week 
+      ON weekly_assignments (task_id, week_start_date)
+    `).run()
+
+    dbCleaned = true
+  } catch (err) {
+    console.error('Failed to clean database or create unique index:', err)
+  }
+}
+
 // Middleware to verify D1 database binding exists
 app.use('*', async (c, next) => {
   if (!c.env || !c.env.DB) {
@@ -16,6 +65,7 @@ app.use('*', async (c, next) => {
       details: 'Bitte stelle sicher, dass du in den Cloudflare Pages-Einstellungen unter "Settings" -> "Functions" -> "D1 database bindings" eine D1-Datenbank mit dem Bindungsnamen "DB" verknüpft hast, und das Projekt danach neu gebaut/deployed hast.'
     }, 500)
   }
+  await cleanAndIndexDatabase(c.env.DB)
   await next()
 })
 
@@ -182,14 +232,24 @@ app.delete('/tasks/:id', async (c) => {
 // Get absences for a user
 app.get('/absences', async (c) => {
   const userId = c.req.query('user_id')
-  let query = 'SELECT * FROM absences'
   let results
   
   if (userId) {
-    const data = await c.env.DB.prepare('SELECT * FROM absences WHERE user_id = ? ORDER BY start_date ASC').bind(userId).all()
+    const data = await c.env.DB.prepare(`
+      SELECT a.*, u.name as user_name
+      FROM absences a
+      JOIN users u ON a.user_id = u.id
+      WHERE a.user_id = ?
+      ORDER BY a.start_date ASC
+    `).bind(userId).all()
     results = data.results
   } else {
-    const data = await c.env.DB.prepare('SELECT * FROM absences ORDER BY start_date ASC').all()
+    const data = await c.env.DB.prepare(`
+      SELECT a.*, u.name as user_name
+      FROM absences a
+      JOIN users u ON a.user_id = u.id
+      ORDER BY a.start_date ASC
+    `).all()
     results = data.results
   }
   
@@ -204,7 +264,12 @@ app.post('/absences', async (c) => {
     'INSERT INTO absences (user_id, start_date, end_date) VALUES (?, ?, ?)'
   ).bind(user_id, start_date, end_date).run()
 
-  const result = await c.env.DB.prepare('SELECT * FROM absences WHERE id = ?').bind(insertResult.meta.last_row_id).first()
+  const result = await c.env.DB.prepare(`
+    SELECT a.*, u.name as user_name
+    FROM absences a
+    JOIN users u ON a.user_id = u.id
+    WHERE a.id = ?
+  `).bind(insertResult.meta.last_row_id).first()
 
   return c.json(result, 201)
 })
@@ -229,7 +294,14 @@ app.post('/assignments/generate', async (c) => {
   const weekStart = getMonday(new Date());
   
   // Check if already generated
-  const existing = await c.env.DB.prepare('SELECT * FROM weekly_assignments WHERE week_start_date = ?').bind(weekStart).all();
+  const existing = await c.env.DB.prepare(`
+    SELECT a.*, t.title, t.description, t.type, u.name as user_name
+    FROM weekly_assignments a
+    JOIN task_templates t ON a.task_id = t.id
+    JOIN users u ON a.user_id = u.id
+    WHERE a.week_start_date = ?
+    ORDER BY a.current_priority ASC
+  `).bind(weekStart).all();
   if (existing.results.length > 0) {
     return c.json(existing.results);
   }
@@ -261,20 +333,28 @@ app.post('/assignments/generate', async (c) => {
 
   // Helper function to safely insert assignment and retrieve it
   const addAssignment = async (taskId, userId, priority) => {
-    const insertResult = await c.env.DB.prepare(
-      'INSERT INTO weekly_assignments (task_id, user_id, week_start_date, current_priority) VALUES (?, ?, ?, ?)'
-    ).bind(taskId, userId, weekStart, priority).run();
-    
-    const result = await c.env.DB.prepare(`
-      SELECT a.*, t.title, t.description, t.type, u.name as user_name
-      FROM weekly_assignments a
-      JOIN task_templates t ON a.task_id = t.id
-      JOIN users u ON a.user_id = u.id
-      WHERE a.id = ?
-    `).bind(insertResult.meta.last_row_id).first();
-    
-    assignments.push(result);
-    assignedUserIds.add(userId);
+    try {
+      const insertResult = await c.env.DB.prepare(
+        'INSERT INTO weekly_assignments (task_id, user_id, week_start_date, current_priority) VALUES (?, ?, ?, ?)'
+      ).bind(taskId, userId, weekStart, priority).run();
+      
+      const result = await c.env.DB.prepare(`
+        SELECT a.*, t.title, t.description, t.type, u.name as user_name
+        FROM weekly_assignments a
+        JOIN task_templates t ON a.task_id = t.id
+        JOIN users u ON a.user_id = u.id
+        WHERE a.id = ?
+      `).bind(insertResult.meta.last_row_id).first();
+      
+      assignments.push(result);
+      assignedUserIds.add(userId);
+    } catch (err) {
+      if (err.message && err.message.includes('UNIQUE')) {
+        console.log(`Assignment for task ${taskId} already exists for week ${weekStart}. Skipping.`);
+      } else {
+        throw err;
+      }
+    }
   };
 
   // 1. OG2 Bathroom Task (2 residents) - Perfect 4-week cycle to alternate bathroom and shower duty fairly
@@ -371,7 +451,17 @@ app.post('/assignments/generate', async (c) => {
     }
   }
 
-  return c.json(assignments, 201);
+  // Query and return the final assignments for this week from the DB
+  const { results: finalAssignments } = await c.env.DB.prepare(`
+    SELECT a.*, t.title, t.description, t.type, u.name as user_name
+    FROM weekly_assignments a
+    JOIN task_templates t ON a.task_id = t.id
+    JOIN users u ON a.user_id = u.id
+    WHERE a.week_start_date = ?
+    ORDER BY a.current_priority ASC
+  `).bind(weekStart).all();
+
+  return c.json(finalAssignments, 201);
 })
 
 app.get('/assignments', async (c) => {

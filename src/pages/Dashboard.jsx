@@ -42,7 +42,7 @@ export default function Dashboard({ user, setUser }) {
     loadAssignments()
   }
 
-  const myAssignment = assignments.find(a => a.user_id === user.id)
+  const myAssignments = assignments.filter(a => a.user_id === user.id)
 
   return (
     <div className="dashboard-container">
@@ -59,49 +59,55 @@ export default function Dashboard({ user, setUser }) {
         <>
           <section className="section-mb">
             <div className="section-header">
-              <h2 className="section-title">Deine aktuelle Aufgabe</h2>
-              {myAssignment && myAssignment.status !== 'completed' && (
+              <h2 className="section-title">
+                {myAssignments.length > 1 ? 'Deine aktuellen Aufgaben' : 'Deine aktuelle Aufgabe'}
+              </h2>
+              {myAssignments.some(a => a.status !== 'completed') && (
                 <button onClick={handleReassign} className="btn-danger-outline">
                   <AlertCircle className="w-4 h-4" /> Spontan abwesend
                 </button>
               )}
             </div>
 
-            {!myAssignment ? (
+            {myAssignments.length === 0 ? (
               <div className="empty-task-card">
                 <p className="empty-task-title">Du hast diese Woche keine Aufgabe!</p>
                 <p className="empty-task-subtitle">Entweder bist du abwesend oder es gab keine Aufgaben für dich.</p>
               </div>
             ) : (
-              <div className={`hero-card ${myAssignment.status === 'completed' ? 'completed' : 'pending'}`}>
-                <div className="hero-bg-icon">
-                  <CheckCircle2 className="w-48 h-48" />
-                </div>
-                <div className="hero-content">
-                  <div className="hero-badge">
-                    <span className={`hero-badge-dot ${myAssignment.status === 'completed' ? 'completed' : 'pending'}`}></span>
-                    Prio {myAssignment.current_priority}
-                  </div>
-                  <h3 className="hero-task-title">{myAssignment.title}</h3>
-                  <p className="hero-task-desc">
-                    {myAssignment.description}
-                  </p>
-                  
-                  <div className="hero-actions">
-                    {myAssignment.status === 'completed' ? (
-                      <div className="hero-btn-completed">
-                        <CheckCircle2 className="w-5 h-5" /> Erledigt
+              <div className="flex flex-col gap-4">
+                {myAssignments.map(assignment => (
+                  <div key={assignment.id} className={`hero-card ${assignment.status === 'completed' ? 'completed' : 'pending'}`}>
+                    <div className="hero-bg-icon">
+                      <CheckCircle2 className="w-48 h-48" />
+                    </div>
+                    <div className="hero-content">
+                      <div className="hero-badge">
+                        <span className={`hero-badge-dot ${assignment.status === 'completed' ? 'completed' : 'pending'}`}></span>
+                        {assignment.type === 'monthly' ? 'Monatsaufgabe' : `Prio ${assignment.current_priority}`}
                       </div>
-                    ) : (
-                      <button 
-                        onClick={() => handleComplete(myAssignment.id)}
-                        className="hero-btn-complete"
-                      >
-                        Aufgabe erledigt!
-                      </button>
-                    )}
+                      <h3 className="hero-task-title">{assignment.title}</h3>
+                      <p className="hero-task-desc">
+                        {assignment.description}
+                      </p>
+                      
+                      <div className="hero-actions">
+                        {assignment.status === 'completed' ? (
+                          <div className="hero-btn-completed">
+                            <CheckCircle2 className="w-5 h-5" /> Erledigt
+                          </div>
+                        ) : (
+                          <button 
+                            onClick={() => handleComplete(assignment.id)}
+                            className="hero-btn-complete"
+                          >
+                            Aufgabe erledigt!
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             )}
           </section>

@@ -65,3 +65,6 @@ INSERT INTO task_templates (title, description, type, default_priority, floor_re
 ('Backofen putzen', 'Backofen mit Ofenreiniger einsprühen, einwirken lassen und gründlich säubern.', 'monthly', 3, NULL),
 ('Abzugshaube putzen', 'Fettfilter der Dunstabzugshaube reinigen/waschen und Gehäuse abwischen.', 'monthly', 3, NULL),
 ('Treppenhaus wischen', 'Treppenhaus nass wischen (vom Dachgeschoss bis zum Keller).', 'monthly', 3, NULL);
+
+-- Create unique index to prevent duplicate task assignments per week
+CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_assignments_task_week ON weekly_assignments (task_id, week_start_date);
