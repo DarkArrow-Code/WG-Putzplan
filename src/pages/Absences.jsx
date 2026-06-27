@@ -99,7 +99,10 @@ export default function Absences({ user }) {
         ) : (
           <div className="absences-list">
             {absences.map(abs => (
-              <div key={abs.id} className="absence-card">
+              <div 
+                key={abs.id} 
+                className={`absence-card ${abs.user_id !== user.id ? 'hidden md:flex' : ''}`}
+              >
                 <div className="absence-info">
                   <div className="absence-icon-wrapper">
                     <CalendarIcon className="w-5 h-5" />

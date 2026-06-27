@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
 import Absences from './pages/Absences'
+import Admin from './pages/Admin'
 
 function Navigation({ user, onLogout }) {
   const location = useLocation()
@@ -57,6 +58,9 @@ function App() {
         } />
         <Route path="/absences" element={
           user ? <Absences user={user} /> : <Navigate to="/login" replace />
+        } />
+        <Route path="/admin" element={
+          user ? <Admin /> : <Navigate to="/login" replace />
         } />
       </Routes>
     </div>

@@ -51,6 +51,13 @@ async function cleanAndIndexDatabase(db) {
       ON weekly_assignments (task_id, week_start_date)
     `).run()
 
+    // 5. Add completed_at column if it doesn't exist
+    try {
+      await db.prepare('ALTER TABLE weekly_assignments ADD COLUMN completed_at TEXT').run()
+    } catch (err) {
+      // Ignore if column already exists
+    }
+
     dbCleaned = true
   } catch (err) {
     console.error('Failed to clean database or create unique index:', err)
@@ -482,8 +489,21 @@ app.get('/assignments', async (c) => {
 
 app.post('/assignments/:id/complete', async (c) => {
   const id = c.req.param('id');
-  await c.env.DB.prepare("UPDATE weekly_assignments SET status = 'completed' WHERE id = ?").bind(id).run();
+  await c.env.DB.prepare("UPDATE weekly_assignments SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
   return c.json({ success: true });
+})
+
+app.get('/admin/logs', async (c) => {
+  const { results } = await c.env.DB.prepare(`
+    SELECT a.*, t.title, u.name as user_name
+    FROM weekly_assignments a
+    JOIN task_templates t ON a.task_id = t.id
+    JOIN users u ON a.user_id = u.id
+    WHERE a.status = 'completed' AND a.completed_at IS NOT NULL
+    ORDER BY a.completed_at DESC
+    LIMIT 50
+  `).all();
+  return c.json(results);
 })
 
 app.post('/assignments/reassign', async (c) => {

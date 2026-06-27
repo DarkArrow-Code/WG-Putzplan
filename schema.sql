@@ -40,6 +40,7 @@ CREATE TABLE weekly_assignments (
     user_id INTEGER NOT NULL,
     week_start_date TEXT NOT NULL, -- YYYY-MM-DD (Monday of the week)
     status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'completed'
+    completed_at TEXT, -- timestamp when completed
     current_priority INTEGER NOT NULL,
     FOREIGN KEY(task_id) REFERENCES task_templates(id),
     FOREIGN KEY(user_id) REFERENCES users(id)
