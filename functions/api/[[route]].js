@@ -231,6 +231,9 @@ app.delete('/tasks/:id', async (c) => {
 
 // Get absences for a user
 app.get('/absences', async (c) => {
+  // Clean up old absences (ended > 14 days ago)
+  await c.env.DB.prepare("DELETE FROM absences WHERE date(end_date) < date('now', '-14 days')").run()
+
   const userId = c.req.query('user_id')
   let results
   
