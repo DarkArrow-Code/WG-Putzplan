@@ -6,6 +6,7 @@ import Tasks from './pages/Tasks'
 import Absences from './pages/Absences'
 import Admin from './pages/Admin'
 import MailCode from './pages/MailCode'
+import Roommates from './pages/Roommates'
 import { getToken, clearSession } from './api'
 
 function Navigation({ user, onLogout }) {
@@ -22,6 +23,7 @@ function Navigation({ user, onLogout }) {
             <Link to="/tasks" className={`nav-link ${location.pathname === '/tasks' ? 'active' : ''}`}>Aufgaben</Link>
             <Link to="/absences" className={`nav-link ${location.pathname === '/absences' ? 'active' : ''}`}>Abwesenheiten</Link>
             <Link to="/mail-code" className={`nav-link ${location.pathname === '/mail-code' ? 'active' : ''}`}>Mail-Code</Link>
+            <Link to="/mitbewohner" className={`nav-link ${location.pathname === '/mitbewohner' ? 'active' : ''}`}>Mitbewohner</Link>
           </div>
         </div>
         <button onClick={onLogout} className="nav-logout">Logout</button>
@@ -71,6 +73,9 @@ function App() {
         } />
         <Route path="/mail-code" element={
           user ? <MailCode /> : <Navigate to="/login" replace />
+        } />
+        <Route path="/mitbewohner" element={
+          user ? <Roommates user={user} onLogout={handleLogout} /> : <Navigate to="/login" replace />
         } />
         <Route path="/admin" element={
           user ? <Admin /> : <Navigate to="/login" replace />
