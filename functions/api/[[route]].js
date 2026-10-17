@@ -296,6 +296,36 @@ app.post('/logout', async (c) => {
   return c.json({ success: true })
 })
 
+// --- Mitbewohner entfernen (Auszug / Passwort vergessen) ---
+// The user slot is reset to a free placeholder instead of being deleted, so the
+// task history keeps working and the next person can register on that slot
+// (and takes over any open tasks of the current week).
+app.delete('/users/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const db = c.env.DB
+
+  const user = await db.prepare('SELECT id, name, is_setup FROM users WHERE id = ?').bind(id).first()
+  if (!user) return c.json({ error: 'Mitbewohner nicht gefunden' }, 404)
+  if (!user.is_setup) return c.json({ error: 'Dieser Platz ist bereits frei' }, 400)
+
+  const { results: users } = await db.prepare('SELECT name FROM users').all()
+  let placeholderName = ''
+  for (let j = 1; j <= 50 && !placeholderName; j++) {
+    const name = `Mitbewohner ${j}`
+    if (!users.some(u => u.name === name)) placeholderName = name
+  }
+  if (!placeholderName) placeholderName = `Mitbewohner ${Date.now()}`
+
+  await db.batch([
+    db.prepare('UPDATE users SET name = ?, password_hash = NULL, is_setup = 0 WHERE id = ?').bind(placeholderName, id),
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
+    db.prepare('DELETE FROM absences WHERE user_id = ?').bind(id)
+  ])
+
+  const self = c.get('sessionUser')
+  return c.json({ success: true, removedName: user.name, wasSelf: self.user_id === id })
+})
+
 // --- WG-Mail Sicherheitscode (nur für eingeloggte Mitbewohner) ---
 
 const MAIL_CODE_MAX_AGE_MINUTES = 15
