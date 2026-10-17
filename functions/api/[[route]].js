@@ -58,6 +58,26 @@ async function cleanAndIndexDatabase(db) {
       // Ignore if column already exists
     }
 
+    // 6. Server-side login sessions (token is only stored as SHA-256 hash)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      )
+    `).run()
+
+    // 7. Security codes received by mail (filled by the email worker)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS security_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        source TEXT,
+        received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+
     dbCleaned = true
   } catch (err) {
     console.error('Failed to clean database or create unique index:', err)
@@ -82,6 +102,79 @@ async function sha256(message) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// --- Sessions ---
+
+async function createSession(db, userId) {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  const token = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  await db.prepare('INSERT INTO sessions (token_hash, user_id) VALUES (?, ?)')
+    .bind(await sha256(token), userId).run()
+  return token
+}
+
+// Only lets requests through that carry a valid login token
+async function requireAuth(c, next) {
+  const header = c.req.header('Authorization') || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+  if (!token) return c.json({ error: 'Nicht eingeloggt' }, 401)
+
+  const session = await c.env.DB.prepare(`
+    SELECT s.user_id, u.name FROM sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token_hash = ? AND s.created_at > datetime('now', '-90 days')
+  `).bind(await sha256(token)).first()
+
+  if (!session) return c.json({ error: 'Sitzung abgelaufen, bitte neu einloggen' }, 401)
+  c.set('sessionUser', session)
+  await next()
+}
+
+// --- TOTP (RFC 6238, same as Google/Microsoft Authenticator) ---
+
+function base32Decode(input) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  const clean = input.toUpperCase().replace(/[\s=-]/g, '')
+  let bits = 0
+  let value = 0
+  const out = []
+  for (const char of clean) {
+    const idx = alphabet.indexOf(char)
+    if (idx === -1) throw new Error('WG_TOTP_SECRET ist kein gültiger Base32-Schlüssel')
+    value = (value << 5) | idx
+    bits += 5
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff)
+      bits -= 8
+    }
+  }
+  return new Uint8Array(out)
+}
+
+async function generateTotp(secret, timestampMs = Date.now(), period = 30, digits = 6) {
+  const counter = Math.floor(timestampMs / 1000 / period)
+  const counterBytes = new Uint8Array(8)
+  let tmp = counter
+  for (let i = 7; i >= 0; i--) {
+    counterBytes[i] = tmp & 0xff
+    tmp = Math.floor(tmp / 256)
+  }
+
+  const key = await crypto.subtle.importKey(
+    'raw', base32Decode(secret), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+  )
+  const hmac = new Uint8Array(await crypto.subtle.sign('HMAC', key, counterBytes))
+  const offset = hmac[hmac.length - 1] & 0x0f
+  const binary =
+    ((hmac[offset] & 0x7f) << 24) |
+    (hmac[offset + 1] << 16) |
+    (hmac[offset + 2] << 8) |
+    hmac[offset + 3]
+
+  const code = String(binary % 10 ** digits).padStart(digits, '0')
+  const remaining = period - (Math.floor(timestampMs / 1000) % period)
+  return { code, remaining, period }
 }
 
 async function ensureFiveUsers(db) {
@@ -134,14 +227,16 @@ app.post('/login', async (c) => {
     await c.env.DB.prepare('UPDATE users SET password_hash = ?, is_setup = 1 WHERE id = ?')
       .bind(hashedPassword, user.id).run()
     
-    return c.json({ message: 'Password set successfully', user: { id: user.id, name: user.name, floor: user.floor } })
+    const token = await createSession(c.env.DB, user.id)
+    return c.json({ message: 'Password set successfully', token, user: { id: user.id, name: user.name, floor: user.floor } })
   }
 
   if (user.password_hash !== hashedPassword) {
     return c.json({ error: 'Ungültiges Passwort' }, 401)
   }
 
-  return c.json({ message: 'Login successful', user: { id: user.id, name: user.name, floor: user.floor } })
+  const token = await createSession(c.env.DB, user.id)
+  return c.json({ message: 'Login successful', token, user: { id: user.id, name: user.name, floor: user.floor } })
 })
 
 // Register a new user (take over a placeholder)
@@ -188,7 +283,52 @@ app.post('/register', async (c) => {
 
   const result = await c.env.DB.prepare('SELECT id, name, floor FROM users WHERE id = ?').bind(placeholder.id).first()
 
-  return c.json({ message: 'Registered successfully', user: { id: result.id, name: result.name, floor: result.floor } })
+  const token = await createSession(c.env.DB, result.id)
+  return c.json({ message: 'Registered successfully', token, user: { id: result.id, name: result.name, floor: result.floor } })
+})
+
+app.post('/logout', async (c) => {
+  const header = c.req.header('Authorization') || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+  if (token) {
+    await c.env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run()
+  }
+  return c.json({ success: true })
+})
+
+// --- WG-Mail Sicherheitscode (nur für eingeloggte Mitbewohner) ---
+
+const MAIL_CODE_MAX_AGE_MINUTES = 15
+
+app.get('/wg-code', requireAuth, async (c) => {
+  let totp = null
+  let totpError = null
+  if (c.env.WG_TOTP_SECRET) {
+    try {
+      totp = await generateTotp(c.env.WG_TOTP_SECRET)
+    } catch (err) {
+      totpError = err.message
+    }
+  }
+
+  // Housekeeping: codes older than one day are useless
+  await c.env.DB.prepare("DELETE FROM security_codes WHERE received_at < datetime('now', '-1 day')").run()
+
+  const mail = await c.env.DB.prepare(`
+    SELECT code, source, received_at FROM security_codes
+    WHERE received_at > datetime('now', ?)
+    ORDER BY received_at DESC, id DESC
+    LIMIT 1
+  `).bind(`-${MAIL_CODE_MAX_AGE_MINUTES} minutes`).first()
+
+  c.header('Cache-Control', 'no-store')
+  return c.json({
+    totp,
+    totpConfigured: Boolean(c.env.WG_TOTP_SECRET),
+    totpError,
+    mail: mail || null,
+    mailMaxAgeMinutes: MAIL_CODE_MAX_AGE_MINUTES
+  })
 })
 
 // Get all task templates

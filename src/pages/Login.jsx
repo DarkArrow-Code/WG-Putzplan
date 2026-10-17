@@ -80,6 +80,7 @@ export default function Login({ setUser }) {
       }
 
       localStorage.setItem('user', JSON.stringify(data.user))
+      if (data.token) localStorage.setItem('token', data.token)
       setUser(data.user)
       navigate('/')
     } catch (err) {
