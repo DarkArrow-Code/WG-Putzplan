@@ -1,5 +1,7 @@
 -- schema.sql
 -- Drop tables if they exist
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS security_codes;
 DROP TABLE IF EXISTS weekly_assignments;
 DROP TABLE IF EXISTS absences;
 DROP TABLE IF EXISTS task_templates;
@@ -66,6 +68,22 @@ INSERT INTO task_templates (title, description, type, default_priority, floor_re
 ('Backofen putzen', 'Backofen mit Ofenreiniger einsprühen, einwirken lassen und gründlich säubern.', 'monthly', 3, NULL),
 ('Abzugshaube putzen', 'Fettfilter der Dunstabzugshaube reinigen/waschen und Gehäuse abwischen.', 'monthly', 3, NULL),
 ('Treppenhaus wischen', 'Treppenhaus nass wischen (vom Dachgeschoss bis zum Keller).', 'monthly', 3, NULL);
+
+-- Login sessions (token stored as SHA-256 hash only)
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+-- Security codes for the shared WG mail account (written by email-worker)
+CREATE TABLE IF NOT EXISTS security_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    source TEXT,
+    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Create unique index to prevent duplicate task assignments per week
 CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_assignments_task_week ON weekly_assignments (task_id, week_start_date);

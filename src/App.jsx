@@ -5,6 +5,8 @@ import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
 import Absences from './pages/Absences'
 import Admin from './pages/Admin'
+import MailCode from './pages/MailCode'
+import { getToken, clearSession } from './api'
 
 function Navigation({ user, onLogout }) {
   const location = useLocation()
@@ -19,6 +21,7 @@ function Navigation({ user, onLogout }) {
             <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>Dashboard</Link>
             <Link to="/tasks" className={`nav-link ${location.pathname === '/tasks' ? 'active' : ''}`}>Aufgaben</Link>
             <Link to="/absences" className={`nav-link ${location.pathname === '/absences' ? 'active' : ''}`}>Abwesenheiten</Link>
+            <Link to="/mail-code" className={`nav-link ${location.pathname === '/mail-code' ? 'active' : ''}`}>Mail-Code</Link>
           </div>
         </div>
         <button onClick={onLogout} className="nav-logout">Logout</button>
@@ -33,13 +36,20 @@ function App() {
   useEffect(() => {
     // Check if user is logged in (from localStorage for now)
     const storedUser = localStorage.getItem('user')
-    if (storedUser) {
+    if (storedUser && getToken()) {
       setUser(JSON.parse(storedUser))
+    } else if (storedUser) {
+      // Old login without server token -> log in once again
+      clearSession()
     }
   }, [])
 
   const handleLogout = () => {
-    localStorage.removeItem('user')
+    const token = getToken()
+    if (token) {
+      fetch('/api/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {})
+    }
+    clearSession()
     setUser(null)
   }
 
@@ -58,6 +68,9 @@ function App() {
         } />
         <Route path="/absences" element={
           user ? <Absences user={user} /> : <Navigate to="/login" replace />
+        } />
+        <Route path="/mail-code" element={
+          user ? <MailCode /> : <Navigate to="/login" replace />
         } />
         <Route path="/admin" element={
           user ? <Admin /> : <Navigate to="/login" replace />
